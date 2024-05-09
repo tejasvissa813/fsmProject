@@ -3,8 +3,8 @@ from fsm import FSM
 from enum import Enum
 
 input_wire = pyrtl.Input(bitwidth=2, name="input")
-output_temp = pyrtl.WireVector(bitwidth=2, name="output_temp")
-output = pyrtl.Output(bitwidth=10, name="output")
+state = pyrtl.Output(bitwidth=2, name="currentState")
+output = pyrtl.Output(bitwidth=1, name="output")
 
 ##KEY##
 ## 00 = GO
@@ -24,30 +24,23 @@ output = pyrtl.Output(bitwidth=10, name="output")
 # }
 
 acc_state_rules = [
-    "all + 0 -> GO",
-    "GO + 1 -> STOP",
-    "GO + 2 -> GO",
-    "STOP + 1 -> STOP",
-    "STOP + 2 -> RESET",
-    "RESET + 1 -> RESET",
-    "RESET + 2 -> RESET"
+    "all + 0 -> GO, 1",
+    "GO + 1 -> STOP, 0",
+    "GO + 2 -> GO, 1",
+    "STOP + 1 -> STOP, 0",
+    "STOP + 2 -> RESET, 0",
+    "RESET + 1 -> RESET, 0",
+    "RESET + 2 -> RESET, 0"
 ]
+
+
 acc_states_list = ["GO", "STOP", "RESET"]
-acc_state = FSM(states=acc_states_list, input_bitwidth=2, rulesList=acc_state_rules)
-accumulator = pyrtl.Register(bitwidth=8)
 
+acc_state = FSM(states=acc_states_list, input_bitwidth=2, output_bitwidth=1, rulesList=acc_state_rules)
 acc_state <<= input_wire
-output_temp <<= acc_state()
 
-with pyrtl.conditional_assignment:
-    with output_temp == 0:
-        accumulator.next |= accumulator + 1
-    with output_temp == 1:
-        accumulator.next |= accumulator
-    with output_temp == 2:
-        accumulator.next |= 0
-
-output <<= accumulator
+output <<= acc_state()[0]
+state <<= acc_state()[1]
 
 sim_trace = pyrtl.SimulationTrace()
 sim = pyrtl.Simulation(tracer=sim_trace)
@@ -56,5 +49,5 @@ sim_inputs = {
     'input' : '000010110112001'
 }
 sim.step_multiple(sim_inputs)
-sim_trace.render_trace(trace_list=['input', 'output_temp', 'output'])
+sim_trace.render_trace(trace_list=['input', 'currentState', 'output'])
 
