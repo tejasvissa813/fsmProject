@@ -1,0 +1,23 @@
+Tuesday 3/5/24
+ - Wrote FSM Class
+    - problem /w updating state register in loop
+ - Meeting:
+    - sparse mux with concatenated input selection wire
+    - Goal: Finish FSM and three examples by next Tuesday
+ - Current Example Goals:
+    - Vending Machine
+    - Accumulator (dependent and independent FSMs)
+    - 2 interconnected FSMs
+
+Wednesday 3/6/24]
+ - wrote base line FSM Class 
+    - rules pre generated and hard coded as dict
+    - draw FSM => generate rule set => simulate FSM
+ - TO DO: create examples
+
+Thursday 5/2/24
+ - Trying to get Moore Machine style output
+    - output value vs output circuit
+    - 
+
+Thursday 5/

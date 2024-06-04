@@ -2,77 +2,11 @@ from pyrtl import PyrtlError, WireVector, Register, MemBlock, conditional_assign
 from pyrtl.rtllib.muxes import sparse_mux
 from pyrtl.corecircuits import concat, as_wires
 from pyrtl.simulation import Simulation
+from pyrtl.helperfuncs import probe
 from enum import Enum
 from lark import Lark, Transformer
 from abc import ABC, abstractmethod
 import math
-
-# class FSM:
-#     def __init__(self, state_bitwidth, input_bitwidth, name=""):
-#         self.state = pyrtl.Register(bitwidth=state_bitwidth)
-#         self.input_bitwidth = input_bitwidth
-#         self.state_bitwidth = state_bitwidth
-#         self.rules = {} 
-#         self.input = pyrtl.WireVector(bitwidth=input_bitwidth)
-        
-#     def __ilshift__(self, input_wire):
-#         if len(input_wire) != self.input_bitwidth:
-#             raise pyrtl.PyrtlError("Invalid Input")
-#         self.input <<= input_wire
-#         return self
-
-#     def __ior__(self, input_wire):
-#         if len(input_wire) != self.input_bitwidth:
-#             raise pyrtl.PyrtlError("Invalid Input")
-#         self.input <<= input_wire
-#         return self
-
-#     def __call__(self):
-#         output = pyrtl.WireVector(bitwidth=self.state_bitwidth)
-#         output <<= self.state
-#         return output
-    
-#     def add_rule(self, current, inp, out):
-#         from pyrtl.corecircuits import as_wires
-#         if math.log(current+1,2) > self.state_bitwidth or math.log(out+1,2) > self.state_bitwidth:
-#             raise pyrtl.PyrtlError("Invalid State Size")
-#         if math.log(inp+1, 2) > self.input_bitwidth:
-#             raise pyrtl.PyrtlError("Invalid Input Size")
-
-#         self.rules[(as_wires(current), as_wires(inp))] = as_wires(out, bitwidth=self.state_bitwidth)
-    
-#     def run(self):
-#         self.state.next <<= self.rules[(self.state, self.input)]
-
-#sparse mux
-
-# class FSM:
-#     def __init__(self, input_bitwidth, state_bitwidth, rules):
-#         self.input_bitwidth = input_bitwidth
-#         self.state_bitwidth = state_bitwidth
-#         self.state = Register(bitwidth=state_bitwidth)
-#         self.input = WireVector(bitwidth=input_bitwidth)
-#         self.rules = rules
-
-#     def __ilshift__(self, wire):
-#         if len(wire) != self.input_bitwidth:
-#             raise PyrtlError("Invalid Input Bitwidth")
-#         self.input <<= wire
-#         self.state.next <<= sparse_mux(concat(self.state, self.input), self.rules)
-#         return self
-    
-#     def __ior__(self, wire):
-#         if len(wire) != self.input_bitwidth:
-#             raise PyrtlError("Invalid Input Bitwidth")
-#         self.input <<= wire
-#         self.state.next <<= sparse_mux(concat(self.state, self.input), self.rules)
-#         return self
-    
-#     def __call__(self):
-#         return self.state
-
-
-#enums and parsing
 
 #Grammar for Rules
 #state + input -> state
@@ -87,22 +21,37 @@ class RuleTransformer(Transformer):
         return wordList[0]
 
     def input(self, intList):
-        return int(intList[0])
+        try:
+            return int(intList[0])
+        except ValueError:
+            return intList[0]
     
     def output(self, outList):
         return int(outList[0])
             
     def start(self, rule):
-        if rule[0] == "all":
-            rulesUpdate = {}
-            outputsUpdate = {}
-            for state in self.states:
-                stateInBits = self.states.index(state)
-                key = (stateInBits << self.input_bitwidth) | rule[1]
-                rulesUpdate.update({key : self.states.index(rule[2])})
-                outputsUpdate.update({key : rule[3]})
+        if rule[0] == "all" or rule[1] == "all":
+            if rule[0] == "all":
+                rulesUpdate = {}
+                outputsUpdate = {}
+                for state in self.states:
+                    stateInBits = self.states.index(state)
+                    key = (stateInBits << self.input_bitwidth) | rule[1]
+                    rulesUpdate.update({key : self.states.index(rule[2])})
+                    outputsUpdate.update({key : rule[3]})
 
-            return [rulesUpdate, outputsUpdate]
+                return [rulesUpdate, outputsUpdate]
+            
+            elif rule[1] == "all":
+                rulesUpdate = {}
+                outputsUpdate = {}
+                for i in range(2**self.input_bitwidth - 1):
+                    stateInBits = self.states.index(rule[0])
+                    key = (stateInBits << self.input_bitwidth) | i
+                    rulesUpdate.update({key : self.states.index(rule[2])})
+                    outputsUpdate.update({key : rule[3]})
+                
+                return [rulesUpdate, outputsUpdate]
         else:
             stateInBits = self.states.index(rule[0])
             key = (stateInBits << self.input_bitwidth) | rule[1]
@@ -110,18 +59,22 @@ class RuleTransformer(Transformer):
             
 
 class FSM:
-    def __init__(self, input_bitwidth, output_bitwidth, states, rulesList):
-        self.state_bitwidth = math.floor(math.log(len(states))+1)
+    def __init__(self, input_bitwidth, output_bitwidth, states, rulesList, reset=0, enable=1):
+        self.reset_wire = WireVector(bitwidth=1)
+        self.reset_wire <<= reset
+        self.enable_wire = WireVector(bitwidth=1)
+        self.enable_wire <<= enable
+        self.input_wire = WireVector(bitwidth=input_bitwidth)
+        self.state_bitwidth = math.floor(math.log(len(states))/math.log(2)) + 1
         self.input_bitwidth = input_bitwidth
         self.state = Register(bitwidth=self.state_bitwidth)
-        self.input_wire = WireVector(bitwidth=self.input_bitwidth)
         self.output = Register(bitwidth=output_bitwidth)
         self.stateList = states
 
         rule_grammar = '''
             start : state " + " input " -> " state ", " output
             state : WORD
-            input : INT
+            input : INT | WORD
             output : INT
             %import common.INT
             %import common.WORD
@@ -135,30 +88,38 @@ class FSM:
             newRules = RuleTransformer(input_bitwidth, states).transform(rule_tree)
             self.rules.update(newRules[0])
             self.outputs.update(newRules[1])
-
-        
          
     def __ilshift__(self, wire):
-        if len(wire) != self.input_bitwidth:
-            raise PyrtlError("Invalid Input Bitwidth")
+        # probe(self.input_wire)
+        #condition = as_wires(self.reset)
         self.input_wire <<= wire
-        self.state.next <<= sparse_mux(concat(self.state, self.input_wire), self.rules)
-        self.output.next <<= sparse_mux(concat(self.state, self.input_wire), self.outputs)
+
+        with conditional_assignment:
+            with self.enable_wire == 0:
+                self.state.next |= self.state
+                self.output.next |= 0
+            with self.reset_wire:
+                self.state.next |= 0
+                self.output.next |= 0
+            with otherwise:
+                self.state.next |= sparse_mux(concat(self.state, self.input_wire), self.rules)
+                self.output.next |= sparse_mux(concat(self.state, self.input_wire), self.outputs)
         return self
 
     def __ior__(self, wire):
         if len(wire) != self.input_bitwidth:
             raise PyrtlError("Invalid Input Bitwidth")
         self.input_wire |= wire
-        self.state.next <<= sparse_mux(concat(self.state, self.input_wire), self.rules)
-        self.output.next <<= sparse_mux(concat(self.state, self.input_wire), self.outputs)
+        with self.enable_wire == 0:
+            self.state.next |= self.state
+            self.output.next |= 0
+        with self.reset_wire:
+            self.state.next |= 0
+            self.output.next |= 0
+        with otherwise:
+            self.state.next |= sparse_mux(concat(self.state, self.input_wire), self.rules)
+            self.output.next |= sparse_mux(concat(self.state, self.input_wire), self.outputs)
         return self
     
     def __call__(self):
         return [self.output, self.state]
-
-#NEXT:
-# 1) * to represent all states in the grammar  [done]
-# 2) dictionary to define outputs on each state  []
-# 3) Multiple input FSM? (ex. RESET WIRE)
-# 4) Make a repo [done]

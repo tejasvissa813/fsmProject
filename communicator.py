@@ -1,68 +1,48 @@
 import pyrtl
 from fsm import FSM
 
-machine_1_rules = {
-    0 : 0,
-    1 : 0,
-    2 : 0,
-    4 : 1,
-    5 : 1,
-    6 : 1,
-    8 : 0,
-    9 : 0,
-    10 : 0,
-    12 : 1,
-    13 : 2,
-    14 : 2,
-    16 : 0,
-    17 : 0,
-    18 : 0,
-    20 : 1,
-    21 : 2,
-    22 : 2
-}
-
-machine_2_rules = {
-    0 : 0,
-    1 : 0,
-    2 : 0,
-    4 : 1,
-    5 : 1,
-    6 : 1,
-    8 : 0,
-    9 : 0,
-    10 : 0,
-    12 : 1,
-    13 : 1,
-    14 : 2,
-    16 : 0,
-    17 : 0,
-    18 : 0,
-    20 : 2,
-    21 : 2,
-    22 : 2
-}
-
-m1 = FSM(input_bitwidth=3, state_bitwidth=2, rules=machine_1_rules)
-m2 = FSM(input_bitwidth=3, state_bitwidth=2, rules=machine_1_rules)
-
 valid = pyrtl.Input(bitwidth=1, name="valid")
 ready = pyrtl.Input(bitwidth=1, name="ready")
 
-out_1 = pyrtl.WireVector(bitwidth=2, name="out_1")
-out_2 = pyrtl.WireVector(bitwidth=2, name="out_2")
+m1_out = pyrtl.WireVector(bitwidth=1, name="m1_out")
+m2_out = pyrtl.WireVector(bitwidth=1, name="m2_out")
+transfer = pyrtl.Output(bitwidth=1, name="output")
 
-out_1 <<= m1()
-out_2 <<= m2()
+m1_in = pyrtl.WireVector(bitwidth=2, name="m1_in")
+m2_in = pyrtl.WireVector(bitwidth=2, name="m2_in")
+m1_in <<= pyrtl.corecircuits.concat(valid, m2_out)
+m2_in <<= pyrtl.corecircuits.concat(ready, m1_out)
 
-in_1 = pyrtl.WireVector(bitwidth=3, name="in_1")
-in_2 = pyrtl.WireVector(bitwidth=3, name="in_2")
+m1_states = ["Inactive", "Waiting", "Active"]
+m1_rules = [
+    "all + 0 -> Inactive, 0",
+    "all + 1 -> Inactive, 0",
+    "all + 2 -> Waiting, 0",
+    "all + 3 -> Active, 1",
+]
+m2_states = ["Inactive", "Waiting", "Active"]
+m2_rules = [
+    "all + 0 -> Inactive, 0",
+    "all + 1 -> Inactive, 0",
+    "all + 2 -> Waiting, 1",
+    "all + 3 -> Active, 1"
+]
 
-in_1 <<= pyrtl.corecircuits.concat(valid, out_2)
-in_2 <<= pyrtl.corecircuits.concat(ready, out_1)
+machine1 = FSM(input_bitwidth=2, output_bitwidth=1, states=m1_states, rulesList=m1_rules)
+machine2 = FSM(input_bitwidth=2, output_bitwidth=1, states=m2_states, rulesList=m2_rules)
+machine1 <<= m1_in
+machine2 <<= m2_in
+m1_out <<= machine1()[0]
+m2_out <<= machine2()[0]
 
-m1 <<= in_1
-m2 <<= in_2
+with pyrtl.conditional_assignment:
+    with machine1()[1] == 2:
+        with machine2()[1] == 2:
+            transfer |= 1
+        with pyrtl.otherwise:
+            transfer |= 0
+    with pyrtl.otherwise:
+        transfer |= 0
 
 sim_trace = pyrtl.SimulationTrace()
 sim = pyrtl.Simulation(tracer=sim_trace)
@@ -72,4 +52,4 @@ sim_inputs = {
     'ready' : '0000000111111100'
 }
 sim.step_multiple(sim_inputs)
-sim_trace.render_trace(trace_list=['valid', 'ready', 'out_1','out_2'])
+sim_trace.render_trace(trace_list=['valid', 'ready', 'm1_out','m2_out', 'output'])

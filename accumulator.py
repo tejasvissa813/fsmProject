@@ -37,7 +37,8 @@ acc_state_rules = [
 acc_states_list = ["GO", "STOP", "RESET"]
 
 acc_state = FSM(states=acc_states_list, input_bitwidth=2, output_bitwidth=1, rulesList=acc_state_rules)
-acc_state <<= input_wire
+acc_state <<= [input_wire, 0]
+
 
 output <<= acc_state()[0]
 state <<= acc_state()[1]
